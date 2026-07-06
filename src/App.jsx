@@ -290,6 +290,7 @@ const INFO = {
   // Feed & Site
   RH_feed: "Relative humidity of the gas entering the beds. Water competes with CO₂ for adsorption sites — the single biggest performance risk for zeolite 13X. Above ~20% RH, 13X capacity collapses. The dew point readout tells you how much actual water is present.",
   y_CO2: "CO₂ concentration in the BioCHP exhaust. Air-fired combustion gives ~5–7%. Higher concentration means higher partial pressure, which improves working capacity.",
+  m_feed: "Total exhaust mass flow entering the capture system. 0.76 kg/s is the BioCHP unit's system maximum (full design flow). This slider drops below that only to model a bench or commissioning TEST — running fewer columns or a reduced feed to validate the design at lower risk. IMPORTANT: any flow below 0.76 kg/s is a test condition. Recovery will look artificially high and cost-per-ton artificially high because the beds are oversized for the reduced feed; neither number is a valid design or commercial figure. To reproduce the full-scale per-column design point on a smaller rig, feed each adsorbing column its design share (~0.25 kg/s per adsorbing column) — e.g. a 4-column rig with 2 adsorbing at ~0.51 kg/s sees the same velocity, pressure drop, and breakthrough front as the full 6-column unit.",
   h_alt: "Site elevation. INL is at ~1,500 m. Thinner air reduces both gas density (raising face velocity) and CO₂ partial pressure (lowering capacity by ~10% here). The tool corrects for all three effects.",
   // Geometry
   D_col: "Inner diameter of each adsorption column. Wider columns lower the gas face velocity (good — avoids fluidization) but hold more sorbent, increasing cost and the heat that must be removed each cycle.",
@@ -593,7 +594,12 @@ export default function TSABedSizingApp() {
             <SliderInput label="Feed Humidity" value={inputs.RH_feed} onChange={set("RH_feed")} min={5} max={80} step={1} unit="% RH" decimals={0} note={`dew pt ${res.T_dp.toFixed(0)}°C`} info="RH_feed" />
             <SliderInput label="CO₂ Concentration" value={inputs.y_CO2} onChange={set("y_CO2")} min={3} max={15} step={0.5} unit="vol%" decimals={1} info="y_CO2" />
             <SliderInput label="Site Altitude" value={inputs.h_alt} onChange={set("h_alt")} min={0} max={3000} step={100} unit="m" decimals={0} note={`P_CO₂ ${(res.P_CO2/1000).toFixed(1)} kPa`} info="h_alt" />
-            <div style={{ fontSize: 9, color: COLORS.textDim, padding: "2px 4px" }}>Feed flow locked: 0.76 kg/s (system max)</div>
+            <SliderInput label="Feed Flow (test mode)" value={inputs.m_feed} onChange={set("m_feed")} min={0.15} max={0.76} step={0.01} unit="kg/s" decimals={2} note={inputs.m_feed >= 0.75 ? "full design flow" : `${(inputs.m_feed / 0.76 * 100).toFixed(0)}% of design`} info="m_feed" />
+            <div style={{ fontSize: 9, color: inputs.m_feed >= 0.75 ? COLORS.textDim : COLORS.cyan, padding: "3px 6px", background: inputs.m_feed >= 0.75 ? "transparent" : "rgba(6,182,212,0.08)", borderRadius: 4, lineHeight: 1.4 }}>
+              {inputs.m_feed >= 0.75
+                ? "0.76 kg/s = BioCHP system max (full design flow)."
+                : `TEST MODE: feeding ${(inputs.m_feed / 0.76 * 100).toFixed(0)}% of design flow. Below-design flow is a bench/commissioning condition, not a design point — LCCC and throughput here are test artifacts, not commercial figures.`}
+            </div>
           </Accordion>
 
           <Accordion title="Bed Geometry" icon="▭" defaultOpen>
@@ -663,6 +669,39 @@ export default function TSABedSizingApp() {
           {res.warnings.length === 0 && (
             <div style={{ background: "rgba(34,197,94,0.10)", border: `1px solid ${COLORS.accent}33`, borderRadius: 4, padding: "5px 10px", fontSize: 11, color: COLORS.accent, marginBottom: 5 }}>
               ✓ Configuration feasible — LCCC ${res.LCCC.toFixed(0)}/ton · {res.CO2_tpd.toFixed(1)} t/day · recovery {res.recovery.toFixed(0)}% · purity ~{res.purity.toFixed(0)}%
+            </div>
+          )}
+
+          {inputs.m_feed < 0.75 && (
+            <div style={{ background: "rgba(6,182,212,0.06)", borderRadius: 8, border: `1px solid ${COLORS.cyan}44`, padding: 14, marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: COLORS.cyan, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8, fontWeight: 700 }}>
+                ⚗ Test Rig Equivalence
+              </div>
+              <div style={{ fontSize: 11, color: COLORS.textMuted, lineHeight: 1.5, marginBottom: 10 }}>
+                Per-adsorbing-column conditions determine whether a smaller test rig reproduces the full-scale design point.
+                The full 6-column unit runs {(0.76 / 3).toFixed(2)} kg/s per adsorbing column at 0.76 kg/s total.
+                This configuration runs <span style={{ color: COLORS.white, fontFamily: "'JetBrains Mono', monospace" }}>{(inputs.m_feed / inputs.N_ads_target).toFixed(2)} kg/s</span> per adsorbing column.
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr", gap: 6, fontSize: 10.5 }}>
+                {[
+                  ["Metric", "This rig", "Full 6-col design"],
+                  ["Feed per adsorbing col", `${(inputs.m_feed / inputs.N_ads_target).toFixed(2)} kg/s`, `${(0.76 / 3).toFixed(2)} kg/s`],
+                  ["Face velocity", `${res.v_sup.toFixed(2)} m/s`, "0.47 m/s"],
+                  ["ΔP system", `${(res.dP_sys / 1000).toFixed(1)} kPa`, "7.9 kPa"],
+                  ["MTZ fraction", `${(res.f_MTZ * 100).toFixed(0)}%`, "35%"],
+                ].map((row, i) => (
+                  <React.Fragment key={i}>
+                    <div style={{ color: i === 0 ? COLORS.textDim : COLORS.textMuted, fontWeight: i === 0 ? 700 : 400, textTransform: i === 0 ? "uppercase" : "none", fontSize: i === 0 ? 9 : 10.5, paddingTop: i === 0 ? 0 : 2 }}>{row[0]}</div>
+                    <div style={{ color: i === 0 ? COLORS.textDim : COLORS.white, fontWeight: i === 0 ? 700 : 400, fontFamily: i === 0 ? "inherit" : "'JetBrains Mono', monospace", textTransform: i === 0 ? "uppercase" : "none", fontSize: i === 0 ? 9 : 10.5, paddingTop: i === 0 ? 0 : 2 }}>{row[1]}</div>
+                    <div style={{ color: i === 0 ? COLORS.textDim : COLORS.textDim, fontWeight: i === 0 ? 700 : 400, fontFamily: i === 0 ? "inherit" : "'JetBrains Mono', monospace", textTransform: i === 0 ? "uppercase" : "none", fontSize: i === 0 ? 9 : 10.5, paddingTop: i === 0 ? 0 : 2 }}>{row[2]}</div>
+                  </React.Fragment>
+                ))}
+              </div>
+              <div style={{ fontSize: 10, color: Math.abs(inputs.m_feed / inputs.N_ads_target - 0.76 / 3) < 0.03 ? COLORS.accent : COLORS.amber, marginTop: 10, lineHeight: 1.4 }}>
+                {Math.abs(inputs.m_feed / inputs.N_ads_target - 0.76 / 3) < 0.03
+                  ? "✓ Per-column conditions match the full-scale design point. This rig validates the real hydraulics and breakthrough behavior — results transfer directly to the 6-column unit."
+                  : `To match the full-scale design point (${(0.76 / 3).toFixed(2)} kg/s per adsorbing column), set feed flow to ${(0.76 / 3 * inputs.N_ads_target).toFixed(2)} kg/s at N_ads = ${inputs.N_ads_target}. Current per-column flow differs, so this is a de-rated test — proves function, not design-point performance.`}
+              </div>
             </div>
           )}
 
