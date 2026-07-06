@@ -34,9 +34,9 @@ const SORBENTS = {
 };
 
 const SCENARIOS = {
-  conservative: { sorbent: "13X", D_col: 0.80, L_bed: 1.20, N_col: 3, N_ads_target: 1, T_regen: 250, RH_feed: 30, Q_avail: 200, t_regen: 25, t_cool: 12, P_elec: 0.12 },
-  base: { sorbent: "13X", D_col: 0.90, L_bed: 1.50, N_col: 4, N_ads_target: 2, T_regen: 200, RH_feed: 15, Q_avail: 250, t_regen: 20, t_cool: 10, P_elec: 0.08 },
-  optimistic: { sorbent: "CALF-20", D_col: 1.00, L_bed: 1.80, N_col: 4, N_ads_target: 2, T_regen: 150, RH_feed: 10, Q_avail: 300, t_regen: 15, t_cool: 8, P_elec: 0.05 },
+  conservative: { sorbent: "13X", D_col: 0.80, L_bed: 0.90, N_col: 6, N_ads_target: 3, T_regen: 250, RH_feed: 30, Q_avail: 250, t_regen: 22, t_cool: 14, cool_air: 3.0, P_elec: 0.12 },
+  base: { sorbent: "13X", D_col: 0.85, L_bed: 0.90, N_col: 6, N_ads_target: 3, T_regen: 200, RH_feed: 15, Q_avail: 250, t_regen: 18, t_cool: 12, cool_air: 3.0, P_elec: 0.08 },
+  optimistic: { sorbent: "CALF-20", D_col: 0.90, L_bed: 1.00, N_col: 6, N_ads_target: 3, T_regen: 150, RH_feed: 10, Q_avail: 300, t_regen: 15, t_cool: 10, cool_air: 3.5, P_elec: 0.05 },
 };
 
 // ─── Helpers ───
@@ -152,12 +152,12 @@ function runModel(inp) {
   const purity = CO2_per_cycle / (CO2_per_cycle + m_inert + m_H2O) * 100;
   if (purity < inp.y_target) warnings.push({ t: `Est. purity ${purity.toFixed(0)}% below ${inp.y_target}% target.`, fix: "Reduce RH or increase bed vs void volume", c: "amber" });
 
-  // Step 14: Cooling
+  // Step 14: Cooling (dedicated cooling-air fan, decoupled from feed; 40°C air rise)
   const Q_cool = (m_sorbent_col * S.Cp_s + m_steel * 500) * (inp.T_regen - inp.T_feed);
-  const mdot_cool = inp.m_feed * inp.f_cool_flow;
-  const t_cool_req = inp.f_cool_corr * Q_cool / (mdot_cool * 1005 * 30) / 60;
-  if (t_cool_req > inp.t_cool * 1.5) warnings.push({ t: `Severe cooling bottleneck: needs ${t_cool_req.toFixed(1)} min vs ${inp.t_cool} allocated.`, fix: `Allocate ≥ ${Math.ceil(t_cool_req)} min or raise f_cool_flow`, c: "red" });
-  else if (t_cool_req > inp.t_cool) warnings.push({ t: `Cooling needs ${t_cool_req.toFixed(1)} min but ${inp.t_cool} min allocated.`, fix: `Raise t_cool to ${Math.ceil(t_cool_req)} min`, c: "amber" });
+  const mdot_cool = inp.cool_air;
+  const t_cool_req = inp.f_cool_corr * Q_cool / (mdot_cool * 1005 * 40) / 60;
+  if (t_cool_req > inp.t_cool * 1.5) warnings.push({ t: `Severe cooling bottleneck: needs ${t_cool_req.toFixed(1)} min vs ${inp.t_cool} allocated.`, fix: `Raise cooling air flow or shorten/shrink beds`, c: "red" });
+  else if (t_cool_req > inp.t_cool) warnings.push({ t: `Cooling needs ${t_cool_req.toFixed(1)} min but ${inp.t_cool} min allocated.`, fix: `Raise t_cool to ${Math.ceil(t_cool_req)} min or increase cooling air`, c: "amber" });
 
   // Step 15: Specific energy
   const W_total = W_blower + W_loop + 5;
@@ -384,10 +384,10 @@ export default function TSABedSizingApp() {
   const [scenario, setScenario] = useState("base");
   const [inputs, setInputs] = useState({
     sorbent: "13X", m_feed: 0.76, T_feed: 40, RH_feed: 15, y_CO2: 6, h_alt: 1500,
-    D_col: 0.90, L_bed: 1.50, N_col: 4, d_p: 2.0,
-    N_ads_target: 2, t_regen: 20, t_cool: 10, T_regen: 200,
+    D_col: 0.85, L_bed: 0.90, N_col: 6, d_p: 2.0,
+    N_ads_target: 3, t_regen: 18, t_cool: 12, T_regen: 200,
     eta_HX_loop: 0.75, W_loop_blower: 2, f_H2O_carry: 0.05,
-    f_avail: 0.90, eta_blower: 0.70, f_cool_flow: 0.50, f_dP_system: 1.8, f_cool_corr: 1.4,
+    f_avail: 0.90, eta_blower: 0.70, cool_air: 3.0, f_dP_system: 1.8, f_cool_corr: 1.4,
     Q_avail: 250, y_target: 85,
     P_elec: 0.08, R_therm_opp: 0.027, C_sorbent: 5, C_vessel_rate: 1200, C_valve_col: 7500,
     r_disc: 10, T_project: 20,
@@ -428,7 +428,7 @@ export default function TSABedSizingApp() {
         for (const N of [2, 3, 4, 5, 6])
           for (const RH of [10, 20, 30, 40, 60]) {
             const p = evalConfig(inputs, D, L, N, RH);
-            if (isFinite(p.lccc) && p.lccc < 400 && p.tpd > 0.2) pts.push(p);
+            if (isFinite(p.lccc) && p.lccc > 0 && p.lccc < 300 && isFinite(p.tpd) && p.tpd > 0.2 && p.tpd < 12) pts.push(p);
           }
     const clean = pts.filter(p => p.clean);
     const frontier = clean.filter(p => !clean.some(q => q.tpd >= p.tpd && q.lccc <= p.lccc && (q.tpd > p.tpd || q.lccc < p.lccc))).sort((a, b) => a.tpd - b.tpd);
@@ -559,7 +559,7 @@ export default function TSABedSizingApp() {
           <Accordion title="Operating" icon="⚙">
             <SliderInput label="Availability" value={inputs.f_avail} onChange={set("f_avail")} min={0.70} max={0.99} step={0.01} unit="" decimals={2} />
             <SliderInput label="Blower Efficiency" value={inputs.eta_blower} onChange={set("eta_blower")} min={0.50} max={0.85} step={0.05} unit="" decimals={2} />
-            <SliderInput label="Cooling Flow Fraction" value={inputs.f_cool_flow} onChange={set("f_cool_flow")} min={0.2} max={1.0} step={0.05} unit="" decimals={2} />
+            <SliderInput label="Cooling Air Flow" value={inputs.cool_air} onChange={set("cool_air")} min={0.5} max={8.0} step={0.5} unit="kg/s" decimals={1} note={`needs ${res.t_cool_req.toFixed(0)} min cool`} />
             <SliderInput label="System ΔP Factor" value={inputs.f_dP_system} onChange={set("f_dP_system")} min={1.0} max={3.0} step={0.1} unit="×" decimals={1} />
             <SliderInput label="Purity Target (TSA)" value={inputs.y_target} onChange={set("y_target")} min={70} max={95} step={1} unit="%" decimals={0} />
           </Accordion>
@@ -630,8 +630,8 @@ export default function TSABedSizingApp() {
             </div>
             <ResponsiveContainer width="100%" height={240}>
               <ScatterChart margin={{ left: 10, right: 20, bottom: 10 }}>
-                <XAxis dataKey="tpd" type="number" name="t/day" tick={{ fill: COLORS.textDim, fontSize: 10 }} domain={[0, "auto"]} />
-                <YAxis dataKey="lccc" type="number" name="LCCC" tick={{ fill: COLORS.textDim, fontSize: 10 }} domain={[0, 300]} />
+                <XAxis dataKey="tpd" type="number" name="t/day" tick={{ fill: COLORS.textDim, fontSize: 10 }} domain={[0, 6]} allowDataOverflow ticks={[0, 1, 2, 3, 4, 5, 6]} />
+                <YAxis dataKey="lccc" type="number" name="LCCC" tick={{ fill: COLORS.textDim, fontSize: 10 }} domain={[0, 250]} allowDataOverflow ticks={[0, 50, 100, 150, 200, 250]} />
                 <Tooltip content={({ active, payload }) => {
                   if (!active || !payload?.length) return null;
                   const d = payload[0].payload;
@@ -644,7 +644,7 @@ export default function TSABedSizingApp() {
                 <Scatter data={pareto.pts.filter(p => p.feasible && !p.clean)} fill={COLORS.amber} opacity={0.3} />
                 <Scatter data={pareto.pts.filter(p => p.clean)} fill={COLORS.accent} opacity={0.55} />
                 <Scatter data={pareto.frontier} fill="none" line={{ stroke: COLORS.blue, strokeWidth: 2 }} shape={() => null} />
-                <Scatter data={[{ tpd: res.CO2_tpd, lccc: Math.min(res.LCCC, 300) }]} fill="#ffffff" shape="diamond" />
+                <Scatter data={[{ tpd: Math.min(res.CO2_tpd, 6), lccc: Math.min(isFinite(res.LCCC) ? res.LCCC : 250, 250) }]} fill="#ffffff" shape="diamond" />
               </ScatterChart>
             </ResponsiveContainer>
             <div style={{ fontSize: 9, color: COLORS.textDim, display: "flex", gap: 14 }}>
