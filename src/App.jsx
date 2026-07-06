@@ -663,7 +663,7 @@ export default function TSABedSizingApp() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 6, marginBottom: 12 }}>
             <MetricCard label="CO₂ Capture" value={res.CO2_tpd} unit="t/d" status={res.CO2_tpd >= 3.5 ? "ok" : res.CO2_tpd >= 2 ? "warn" : "error"} tip="Total capture rate, all columns" />
             <MetricCard label="Recovery" value={res.recovery} unit="%" decimals={0} status={res.recovery >= 90 ? "ok" : res.recovery >= 75 ? "warn" : "error"} tip="CO₂ captured ÷ CO₂ fed — CRADA target >90%" />
-            <MetricCard label="LCCC" value={res.LCCC} unit="$/t" decimals={0} status={res.LCCC < 80 ? "ok" : res.LCCC < 120 ? "warn" : "error"} tip="Levelized cost of capture vs $85 45Q + offtake" />
+            <MetricCard label="LCCC" value={res.LCCC} unit="$/t" decimals={0} status={res.LCCC < 80 ? "ok" : res.LCCC < 120 ? "warn" : "error"} tip="Levelized cost of capture for the TSA capture island only. Compare vs $85 45Q + offtake. NOTE: gas cleaning and pre-treatment (drying, particulate/acid-gas removal) are a separate cost not yet included." />
             <MetricCard label="Purity (est.)" value={res.purity} unit="%" decimals={0} status={res.purity >= inputs.y_target ? "ok" : res.purity >= 75 ? "warn" : "error"} tip="Mass-balance estimate — bench validation required" />
             <MetricCard label="Power (avg)" value={res.W_total_avg} unit="kW" decimals={1} status={res.W_total_avg < 25 ? "ok" : res.W_total_avg < 40 ? "warn" : "error"} sub={`peak ${res.W_total_peak.toFixed(0)} kW`} tip="Feed blower + loop blowers (avg over cycle) + aux. OPEX and specific energy use this average." />
             <MetricCard label="Regen Heat" value={res.Q_regen_total} unit="kW" decimals={0} status={res.Q_regen_total < inputs.Q_avail * 0.75 ? "ok" : res.Q_regen_total <= inputs.Q_avail ? "warn" : "error"} tip="Thermal demand for regeneration" />
@@ -832,6 +832,9 @@ export default function TSABedSizingApp() {
             <div style={{ display: "flex", justifyContent: "space-between", borderTop: `1px solid ${COLORS.panelBorder}`, paddingTop: 4, marginTop: 4 }}>
               <span style={{ fontSize: 11, color: COLORS.accent, fontWeight: 700 }}>Total CAPEX</span>
               <span style={{ fontSize: 12, color: COLORS.accent, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" }}>{fmt$(res.CAPEX_total)}</span>
+            </div>
+            <div style={{ marginTop: 8, padding: "6px 8px", background: "rgba(6,182,212,0.08)", border: `1px solid ${COLORS.cyan}33`, borderRadius: 4, fontSize: 9.5, color: COLORS.cyan, lineHeight: 1.4 }}>
+              LCCC covers the TSA capture island. Gas cleaning and pre-treatment (drying, particulate / acid-gas removal) are a separate cost not yet included.
             </div>
           </div>
 
