@@ -225,7 +225,7 @@ function runModel(inp) {
 function evalConfig(base, D, L, N, RH) {
   const r = runModel({ ...base, D_col: D, L_bed: L, N_col: N, RH_feed: RH, N_ads_target: Math.min(base.N_ads_target, N - 1) });
   const feasible = r.fits && r.v_sup <= 1.0 && r.f_MTZ <= 0.5 && r.Q_regen_total <= base.Q_avail && r.purity >= base.y_target - 5;
-  const clean = feasible && r.v_sup <= 0.65 && r.f_MTZ <= 0.3 && r.purity >= base.y_target && r.recovery >= 90;
+  const clean = feasible && r.v_sup <= 0.65 && r.f_MTZ <= 0.35 && r.purity >= base.y_target && r.recovery >= 55;
   return { tpd: r.CO2_tpd, lccc: r.LCCC, feasible, clean, D, L, N, RH };
 }
 
@@ -640,11 +640,13 @@ export default function TSABedSizingApp() {
                     {d.D && <div style={{ color: COLORS.textMuted }}>D={d.D}m L={d.L}m N={d.N} RH={d.RH}%</div>}
                   </div>;
                 }} />
-                <Scatter data={pareto.pts.filter(p => !p.feasible)} fill={COLORS.red} opacity={0.12} />
-                <Scatter data={pareto.pts.filter(p => p.feasible && !p.clean)} fill={COLORS.amber} opacity={0.3} />
-                <Scatter data={pareto.pts.filter(p => p.clean)} fill={COLORS.accent} opacity={0.55} />
-                <Scatter data={pareto.frontier} fill="none" line={{ stroke: COLORS.blue, strokeWidth: 2 }} shape={() => null} />
-                <Scatter data={[{ tpd: Math.min(res.CO2_tpd, 6), lccc: Math.min(isFinite(res.LCCC) ? res.LCCC : 250, 250) }]} fill="#ffffff" shape="diamond" />
+                <Scatter name="configs" data={pareto.pts}>
+                  {pareto.pts.map((p, i) => (
+                    <Cell key={i} fill={p.clean ? COLORS.accent : p.feasible ? COLORS.amber : COLORS.red} fillOpacity={p.clean ? 0.7 : p.feasible ? 0.4 : 0.15} />
+                  ))}
+                </Scatter>
+                {pareto.frontier.length > 1 && <Scatter name="frontier" data={pareto.frontier} line={{ stroke: COLORS.blue, strokeWidth: 2 }} lineType="joint" fill={COLORS.blue} shape="circle" />}
+                <Scatter name="current" data={[{ tpd: Math.min(res.CO2_tpd, 6), lccc: Math.min(isFinite(res.LCCC) ? res.LCCC : 250, 250) }]} fill="#ffffff" shape="diamond" />
               </ScatterChart>
             </ResponsiveContainer>
             <div style={{ fontSize: 9, color: COLORS.textDim, display: "flex", gap: 14 }}>
