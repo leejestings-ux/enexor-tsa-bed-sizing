@@ -495,12 +495,16 @@ export default function TSABedSizingApp() {
         for (const N of [2, 3, 4, 5, 6])
           for (const RH of [10, 20, 30, 40, 60]) {
             const p = evalConfig(inputs, D, L, N, RH);
-            if (isFinite(p.lccc) && p.lccc > 0 && p.lccc < 300 && isFinite(p.tpd) && p.tpd > 0.2 && p.tpd < 12) pts.push(p);
+            if (isFinite(p.lccc) && p.lccc > 0 && p.lccc < 250 && isFinite(p.tpd) && p.tpd > 0.2 && p.tpd <= 6) {
+              pts.push({ tpd: +p.tpd.toFixed(3), lccc: +p.lccc.toFixed(1), feasible: p.feasible, clean: p.clean, D, L, N, RH });
+            }
           }
     const clean = pts.filter(p => p.clean);
+    const warn = pts.filter(p => p.feasible && !p.clean);
+    const infeasible = pts.filter(p => !p.feasible);
     const frontier = clean.filter(p => !clean.some(q => q.tpd >= p.tpd && q.lccc <= p.lccc && (q.tpd > p.tpd || q.lccc < p.lccc))).sort((a, b) => a.tpd - b.tpd);
-    return { pts, frontier };
-  }, [inputs.sorbent, inputs.T_regen, inputs.t_regen, inputs.t_cool, inputs.N_ads_target, inputs.Q_avail, inputs.h_alt, inputs.T_feed, inputs.y_CO2, inputs.P_elec, inputs.R_therm_opp, inputs.C_sorbent, inputs.r_disc, inputs.T_project, inputs.y_target]);
+    return { pts, clean, warn, infeasible, frontier };
+  }, [inputs.sorbent, inputs.T_regen, inputs.t_regen, inputs.t_cool, inputs.N_ads_target, inputs.Q_avail, inputs.h_alt, inputs.T_feed, inputs.y_CO2, inputs.P_elec, inputs.R_therm_opp, inputs.C_sorbent, inputs.r_disc, inputs.T_project, inputs.y_target, inputs.cool_air]);
 
   const sensitivity = useMemo(() => {
     const params = [
@@ -696,10 +700,10 @@ export default function TSABedSizingApp() {
               Pareto Explorer — {pareto.pts.length} configurations (geometry × humidity)<InfoTip id="pareto" />
             </div>
             <ResponsiveContainer width="100%" height={240}>
-              <ScatterChart margin={{ left: 10, right: 20, bottom: 10 }}>
-                <XAxis dataKey="tpd" type="number" name="t/day" tick={{ fill: COLORS.textDim, fontSize: 10 }} domain={[0, 6]} allowDataOverflow ticks={[0, 1, 2, 3, 4, 5, 6]} />
-                <YAxis dataKey="lccc" type="number" name="LCCC" tick={{ fill: COLORS.textDim, fontSize: 10 }} domain={[0, 250]} allowDataOverflow ticks={[0, 50, 100, 150, 200, 250]} />
-                <Tooltip content={({ active, payload }) => {
+              <ScatterChart margin={{ left: 10, right: 20, bottom: 10, top: 10 }}>
+                <XAxis type="number" dataKey="tpd" name="CO2" unit=" t/d" tick={{ fill: COLORS.textDim, fontSize: 10 }} domain={[0, 6]} allowDataOverflow />
+                <YAxis type="number" dataKey="lccc" name="LCCC" unit=" $/t" tick={{ fill: COLORS.textDim, fontSize: 10 }} domain={[0, 250]} allowDataOverflow />
+                <Tooltip cursor={{ strokeDasharray: "3 3" }} content={({ active, payload }) => {
                   if (!active || !payload?.length) return null;
                   const d = payload[0].payload;
                   return <div style={{ background: COLORS.panel, border: `1px solid ${COLORS.cardBorder}`, borderRadius: 6, padding: 8, fontSize: 10 }}>
@@ -707,13 +711,11 @@ export default function TSABedSizingApp() {
                     {d.D && <div style={{ color: COLORS.textMuted }}>D={d.D}m L={d.L}m N={d.N} RH={d.RH}%</div>}
                   </div>;
                 }} />
-                <Scatter name="configs" data={pareto.pts}>
-                  {pareto.pts.map((p, i) => (
-                    <Cell key={i} fill={p.clean ? COLORS.accent : p.feasible ? COLORS.amber : COLORS.red} fillOpacity={p.clean ? 0.7 : p.feasible ? 0.4 : 0.15} />
-                  ))}
-                </Scatter>
-                {pareto.frontier.length > 1 && <Scatter name="frontier" data={pareto.frontier} line={{ stroke: COLORS.blue, strokeWidth: 2 }} lineType="joint" fill={COLORS.blue} shape="circle" />}
-                <Scatter name="current" data={[{ tpd: Math.min(res.CO2_tpd, 6), lccc: Math.min(isFinite(res.LCCC) ? res.LCCC : 250, 250) }]} fill="#ffffff" shape="diamond" />
+                <Scatter name="Infeasible" data={pareto.infeasible} fill={COLORS.red} fillOpacity={0.18} isAnimationActive={false} />
+                <Scatter name="Warnings" data={pareto.warn} fill={COLORS.amber} fillOpacity={0.45} isAnimationActive={false} />
+                <Scatter name="Feasible" data={pareto.clean} fill={COLORS.accent} fillOpacity={0.75} isAnimationActive={false} />
+                {pareto.frontier.length > 1 && <Scatter name="Frontier" data={pareto.frontier} fill={COLORS.blue} line={{ stroke: COLORS.blue, strokeWidth: 2 }} isAnimationActive={false} />}
+                <Scatter name="Current" data={[{ tpd: Math.min(res.CO2_tpd, 6), lccc: Math.min(isFinite(res.LCCC) ? res.LCCC : 250, 250) }]} fill="#ffffff" shape="diamond" isAnimationActive={false} />
               </ScatterChart>
             </ResponsiveContainer>
             <div style={{ fontSize: 9, color: COLORS.textDim, display: "flex", gap: 14 }}>
