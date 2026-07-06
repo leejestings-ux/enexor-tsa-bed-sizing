@@ -230,14 +230,14 @@ function evalConfig(base, D, L, N, RH) {
 }
 
 // ─── UI Components ───
-function SliderInput({ label, value, onChange, min, max, step, unit = "", decimals = 2, prefix = "", note, redAbove }) {
+function SliderInput({ label, value, onChange, min, max, step, unit = "", decimals = 2, prefix = "", note, redAbove, info }) {
   const [ed, setEd] = useState(false); const [ev, setEv] = useState("");
   const pct = ((value - min) / (max - min)) * 100;
   const redPct = redAbove ? ((redAbove - min) / (max - min)) * 100 : null;
   return (
     <div style={{ marginBottom: 10 }}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-        <span style={{ fontSize: 11, color: COLORS.textMuted }}>{label}</span>
+        <span style={{ fontSize: 11, color: COLORS.textMuted }}>{label}{info && <InfoTip id={info} />}</span>
         {ed ? (
           <input autoFocus value={ev} onChange={e => setEv(e.target.value)}
             onBlur={() => { setEd(false); const n = parseFloat(ev); if (!isNaN(n)) onChange(Math.min(max, Math.max(min, n))); }}
@@ -284,6 +284,73 @@ function Accordion({ title, icon, children, defaultOpen }) {
       </div>
       {open && <div style={{ padding: "8px 6px 2px" }}>{children}</div>}
     </div>
+  );
+}
+
+// ─── Glossary of plain-language explanations ───
+const INFO = {
+  // Feed & Site
+  RH_feed: "Relative humidity of the gas entering the beds. Water competes with CO₂ for adsorption sites — the single biggest performance risk for zeolite 13X. Above ~20% RH, 13X capacity collapses. The dew point readout tells you how much actual water is present.",
+  y_CO2: "CO₂ concentration in the BioCHP exhaust. Air-fired combustion gives ~5–7%. Higher concentration means higher partial pressure, which improves working capacity.",
+  h_alt: "Site elevation. INL is at ~1,500 m. Thinner air reduces both gas density (raising face velocity) and CO₂ partial pressure (lowering capacity by ~10% here). The tool corrects for all three effects.",
+  // Geometry
+  D_col: "Inner diameter of each adsorption column. Wider columns lower the gas face velocity (good — avoids fluidization) but hold more sorbent, increasing cost and the heat that must be removed each cycle.",
+  L_bed: "Length of the packed sorbent bed. Longer beds capture more CO₂ and give a bigger safety margin against breakthrough, but cost more and raise pressure drop. Above 1.89 m the column won't fit standing up in a 40ft container.",
+  N_col: "Total number of columns. More columns allow smoother staggered cycling (some always adsorbing while others regenerate and cool) but add valves, piping, and cost.",
+  d_p: "Sorbent pellet diameter. Smaller pellets give faster mass transfer (sharper, shorter MTZ) but much higher pressure drop. Typical TSA pellets are 2–3 mm.",
+  // Cycle
+  N_ads_target: "How many columns adsorb simultaneously. More adsorbing columns split the feed flow, lowering face velocity. The tool auto-computes adsorption time so exactly this many are always adsorbing (continuous operation).",
+  t_regen: "Time spent heating the bed to drive off captured CO₂. Longer regen means lower peak heat demand but a longer overall cycle.",
+  t_cool: "Time spent cooling the bed back down before the next adsorption step. Cooling is often the rate-limiting step because the bed holds a lot of heat — watch the 'needs X min' note.",
+  T_regen: "Temperature the bed is heated to during regeneration. Higher temperature releases more CO₂ (higher working capacity and purity) but costs more energy, slows cooling, and stresses the sorbent. 13X tolerates 350°C; CALF-20 only 200°C.",
+  // Thermal
+  Q_avail: "How much of the BioCHP's 400 kW of heat you allocate to running the TSA regeneration. Every kW used here is a kW you can't sell as thermal energy — so this is a heat-vs-capture economic tradeoff, not a fixed limit.",
+  // Closed-loop
+  eta_HX_loop: "Effectiveness of the heat exchanger in the closed-loop regeneration circuit — how efficiently BioCHP exhaust heat transfers into the recirculating CO₂ loop. Higher is better.",
+  W_loop_blower: "Electrical power to circulate CO₂ around the closed regeneration loop while a column is being regenerated.",
+  f_H2O_carry: "Fraction of desorbed water that slips past the loop condenser into the product CO₂. Higher carryover lowers purity. Keeping the condenser cold minimizes this.",
+  // Operating
+  eta_blower: "Combined mechanical and motor efficiency of the main feed blower. Affects how much electricity it takes to push exhaust through the beds.",
+  cool_air: "Airflow from the dedicated cooling fan used to cool a bed after regeneration. More airflow cools faster, removing the cooling bottleneck, at the cost of a bigger fan.",
+  f_dP_system: "Multiplier that accounts for pressure losses beyond the packed bed itself — valves, distributors, screens, and manifolds. These typically add 50–100% on top of the bed pressure drop.",
+  y_target: "The CO₂ purity you want out of the TSA system. The CRADA needs >99% overall, but that final polish happens downstream — the TSA beds only need to reach ~85%.",
+  // Economics
+  C_sorbent: "Cost per kilogram of sorbent. Zeolite 13X is cheap (~$5/kg); CALF-20 is currently $10–25/kg but water-tolerant. Drives both upfront cost and periodic replacement.",
+  R_therm_opp: "The value of one kWh of BioCHP heat if sold to the customer instead of used for regeneration. This is the 'opportunity cost' of heat — it makes every kW of regen energy show up as lost revenue.",
+  C_vessel_rate: "Fabrication cost per square meter of vessel shell surface. Carbon steel is cheaper; stainless is $1,800–2,500/m².",
+  r_disc: "Discount rate used to annualize the upfront capital cost when computing levelized cost. Roughly your cost of capital or hurdle rate.",
+  // Metrics
+  m_recovery: "Percentage of the CO₂ in the feed that actually gets captured. CRADA target is >90%. At this feed rate, working capacity limits recovery to ~70% unless the feed is very dry.",
+  m_lccc: "Levelized Cost of Carbon Capture — the all-in cost per ton of CO₂, combining annualized capital and yearly operating cost. Compare against the ~$85 (45Q credit) + offtake revenue you'd earn per ton.",
+  m_purity: "Estimated CO₂ purity leaving the TSA system, from a mass balance of captured CO₂ vs. leftover inert gas and water. Labeled 'estimated' because real purity needs bench confirmation.",
+  m_mtz: "Mass Transfer Zone — the moving band inside the bed where CO₂ is actively being adsorbed. If it reaches the bed outlet (over ~30–50% of bed length), CO₂ breaks through and purity drops.",
+  m_regen: "Total heat demand to regenerate the beds. Must stay under the thermal budget you allocated. Shown as used/budget.",
+  m_dq: "Working capacity — the amount of CO₂ (per kg of sorbent) actually captured and released each cycle. It's the dry-basis capacity reduced by altitude (f_P) and humidity (f_hum). The bigger it is, the less sorbent you need.",
+  m_velocity: "Superficial gas velocity through the bed. Too high (>0.65 m/s) risks lifting/fluidizing the pellets and channeling; too low wastes bed volume. Sweet spot is 0.2–0.6 m/s.",
+  pareto: "Each dot is one complete bed design (diameter, length, column count, humidity). Green = meets all targets, amber = works with warnings, red = infeasible. The blue frontier line marks the best possible tradeoffs — designs where you can't capture more CO₂ without paying more per ton. Your current design is the white diamond. Click near the frontier to find the cheapest design at your target throughput.",
+};
+
+// ─── Info Tooltip (click to toggle — works on mobile) ───
+function InfoTip({ id }) {
+  const [open, setOpen] = useState(false);
+  const text = INFO[id];
+  if (!text) return null;
+  return (
+    <span style={{ position: "relative", display: "inline-block" }}>
+      <span onClick={(e) => { e.stopPropagation(); setOpen(!open); }}
+        style={{ cursor: "help", color: open ? COLORS.accent : COLORS.textDim, fontSize: 11, marginLeft: 3, userSelect: "none" }}>ⓘ</span>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+          <div style={{ position: "absolute", left: 16, top: -4, zIndex: 41, width: 240,
+            background: COLORS.panel, border: `1px solid ${COLORS.accent}55`, borderRadius: 8,
+            padding: "10px 12px", fontSize: 11, lineHeight: 1.5, color: COLORS.white,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
+            {text}
+          </div>
+        </>
+      )}
+    </span>
   );
 }
 
@@ -523,53 +590,53 @@ export default function TSABedSizingApp() {
 
           <Accordion title="Feed & Site" icon="◉" defaultOpen>
             <SliderInput label="Feed Temperature" value={inputs.T_feed} onChange={set("T_feed")} min={25} max={80} step={1} unit="°C" decimals={0} />
-            <SliderInput label="Feed Humidity" value={inputs.RH_feed} onChange={set("RH_feed")} min={5} max={80} step={1} unit="% RH" decimals={0} note={`dew pt ${res.T_dp.toFixed(0)}°C`} />
-            <SliderInput label="CO₂ Concentration" value={inputs.y_CO2} onChange={set("y_CO2")} min={3} max={15} step={0.5} unit="vol%" decimals={1} />
-            <SliderInput label="Site Altitude" value={inputs.h_alt} onChange={set("h_alt")} min={0} max={3000} step={100} unit="m" decimals={0} note={`P_CO₂ ${(res.P_CO2/1000).toFixed(1)} kPa`} />
+            <SliderInput label="Feed Humidity" value={inputs.RH_feed} onChange={set("RH_feed")} min={5} max={80} step={1} unit="% RH" decimals={0} note={`dew pt ${res.T_dp.toFixed(0)}°C`} info="RH_feed" />
+            <SliderInput label="CO₂ Concentration" value={inputs.y_CO2} onChange={set("y_CO2")} min={3} max={15} step={0.5} unit="vol%" decimals={1} info="y_CO2" />
+            <SliderInput label="Site Altitude" value={inputs.h_alt} onChange={set("h_alt")} min={0} max={3000} step={100} unit="m" decimals={0} note={`P_CO₂ ${(res.P_CO2/1000).toFixed(1)} kPa`} info="h_alt" />
             <div style={{ fontSize: 9, color: COLORS.textDim, padding: "2px 4px" }}>Feed flow locked: 0.76 kg/s (system max)</div>
           </Accordion>
 
           <Accordion title="Bed Geometry" icon="▭" defaultOpen>
-            <SliderInput label="Column Diameter" value={inputs.D_col} onChange={set("D_col")} min={0.30} max={1.20} step={0.05} unit="m" decimals={2} />
-            <SliderInput label="Bed Length" value={inputs.L_bed} onChange={set("L_bed")} min={0.50} max={3.00} step={0.10} unit="m" decimals={2} redAbove={1.89} note="red = exceeds container" />
-            <SliderInput label="Number of Columns" value={inputs.N_col} onChange={v => set("N_col")(Math.round(v))} min={2} max={6} step={1} unit="" decimals={0} />
-            <SliderInput label="Pellet Diameter" value={inputs.d_p} onChange={set("d_p")} min={1.0} max={4.0} step={0.25} unit="mm" decimals={2} />
+            <SliderInput label="Column Diameter" value={inputs.D_col} onChange={set("D_col")} min={0.30} max={1.20} step={0.05} unit="m" decimals={2} info="D_col" />
+            <SliderInput label="Bed Length" value={inputs.L_bed} onChange={set("L_bed")} min={0.50} max={3.00} step={0.10} unit="m" decimals={2} redAbove={1.89} note="red = exceeds container" info="L_bed" />
+            <SliderInput label="Number of Columns" value={inputs.N_col} onChange={v => set("N_col")(Math.round(v))} min={2} max={6} step={1} unit="" decimals={0} info="N_col" />
+            <SliderInput label="Pellet Diameter" value={inputs.d_p} onChange={set("d_p")} min={1.0} max={4.0} step={0.25} unit="mm" decimals={2} info="d_p" />
           </Accordion>
 
           <Accordion title="Cycle Schedule" icon="⟳">
-            <SliderInput label="Columns Adsorbing" value={inputs.N_ads_target} onChange={v => set("N_ads_target")(Math.max(1, Math.min(Math.round(v), inputs.N_col - 1)))} min={1} max={5} step={1} unit="" decimals={0} note={`t_ads auto: ${res.t_ads.toFixed(0)} min`} />
-            <SliderInput label="Regen Time" value={inputs.t_regen} onChange={set("t_regen")} min={10} max={45} step={1} unit="min" decimals={0} />
-            <SliderInput label="Cooling Time" value={inputs.t_cool} onChange={set("t_cool")} min={5} max={20} step={1} unit="min" decimals={0} note={`needs ${res.t_cool_req.toFixed(1)} min`} />
-            <SliderInput label="Regen Temperature" value={inputs.T_regen} onChange={set("T_regen")} min={100} max={300} step={5} unit="°C" decimals={0} redAbove={S.T_regen_max < 300 ? S.T_regen_max : undefined} />
+            <SliderInput label="Columns Adsorbing" value={inputs.N_ads_target} onChange={v => set("N_ads_target")(Math.max(1, Math.min(Math.round(v), inputs.N_col - 1)))} min={1} max={5} step={1} unit="" decimals={0} note={`t_ads auto: ${res.t_ads.toFixed(0)} min`} info="N_ads_target" />
+            <SliderInput label="Regen Time" value={inputs.t_regen} onChange={set("t_regen")} min={10} max={45} step={1} unit="min" decimals={0} info="t_regen" />
+            <SliderInput label="Cooling Time" value={inputs.t_cool} onChange={set("t_cool")} min={5} max={20} step={1} unit="min" decimals={0} note={`needs ${res.t_cool_req.toFixed(1)} min`} info="t_cool" />
+            <SliderInput label="Regen Temperature" value={inputs.T_regen} onChange={set("T_regen")} min={100} max={300} step={5} unit="°C" decimals={0} redAbove={S.T_regen_max < 300 ? S.T_regen_max : undefined} info="T_regen" />
           </Accordion>
 
           <Accordion title="Thermal Budget" icon="♨">
-            <SliderInput label="Thermal Allocated to TSA" value={inputs.Q_avail} onChange={set("Q_avail")} min={0} max={400} step={10} unit="kW" decimals={0} note={`regen uses ${res.Q_regen_total.toFixed(0)} kW`} />
+            <SliderInput label="Thermal Allocated to TSA" value={inputs.Q_avail} onChange={set("Q_avail")} min={0} max={400} step={10} unit="kW" decimals={0} note={`regen uses ${res.Q_regen_total.toFixed(0)} kW`} info="Q_avail" />
             <div style={{ fontSize: 10, color: COLORS.textMuted, padding: 4, background: COLORS.bg, borderRadius: 4 }}>
               Heat sales forgone: <span style={{ color: COLORS.amber, fontFamily: "'JetBrains Mono', monospace" }}>{fmt$(res.rev_therm_forgone)}/yr</span>
             </div>
           </Accordion>
 
           <Accordion title="Closed-Loop Regen" icon="◌">
-            <SliderInput label="Loop HX Effectiveness" value={inputs.eta_HX_loop} onChange={set("eta_HX_loop")} min={0.5} max={0.9} step={0.05} unit="" decimals={2} />
-            <SliderInput label="Loop Blower Power" value={inputs.W_loop_blower} onChange={set("W_loop_blower")} min={0.5} max={5} step={0.5} unit="kW" decimals={1} />
-            <SliderInput label="H₂O Carryover" value={inputs.f_H2O_carry} onChange={set("f_H2O_carry")} min={0} max={0.2} step={0.01} unit="" decimals={2} />
+            <SliderInput label="Loop HX Effectiveness" value={inputs.eta_HX_loop} onChange={set("eta_HX_loop")} min={0.5} max={0.9} step={0.05} unit="" decimals={2} info="eta_HX_loop" />
+            <SliderInput label="Loop Blower Power" value={inputs.W_loop_blower} onChange={set("W_loop_blower")} min={0.5} max={5} step={0.5} unit="kW" decimals={1} info="W_loop_blower" />
+            <SliderInput label="H₂O Carryover" value={inputs.f_H2O_carry} onChange={set("f_H2O_carry")} min={0} max={0.2} step={0.01} unit="" decimals={2} info="f_H2O_carry" />
           </Accordion>
 
           <Accordion title="Operating" icon="⚙">
             <SliderInput label="Availability" value={inputs.f_avail} onChange={set("f_avail")} min={0.70} max={0.99} step={0.01} unit="" decimals={2} />
-            <SliderInput label="Blower Efficiency" value={inputs.eta_blower} onChange={set("eta_blower")} min={0.50} max={0.85} step={0.05} unit="" decimals={2} />
-            <SliderInput label="Cooling Air Flow" value={inputs.cool_air} onChange={set("cool_air")} min={0.5} max={8.0} step={0.5} unit="kg/s" decimals={1} note={`needs ${res.t_cool_req.toFixed(0)} min cool`} />
-            <SliderInput label="System ΔP Factor" value={inputs.f_dP_system} onChange={set("f_dP_system")} min={1.0} max={3.0} step={0.1} unit="×" decimals={1} />
-            <SliderInput label="Purity Target (TSA)" value={inputs.y_target} onChange={set("y_target")} min={70} max={95} step={1} unit="%" decimals={0} />
+            <SliderInput label="Blower Efficiency" value={inputs.eta_blower} onChange={set("eta_blower")} min={0.50} max={0.85} step={0.05} unit="" decimals={2} info="eta_blower" />
+            <SliderInput label="Cooling Air Flow" value={inputs.cool_air} onChange={set("cool_air")} min={0.5} max={8.0} step={0.5} unit="kg/s" decimals={1} note={`needs ${res.t_cool_req.toFixed(0)} min cool`} info="cool_air" />
+            <SliderInput label="System ΔP Factor" value={inputs.f_dP_system} onChange={set("f_dP_system")} min={1.0} max={3.0} step={0.1} unit="×" decimals={1} info="f_dP_system" />
+            <SliderInput label="Purity Target (TSA)" value={inputs.y_target} onChange={set("y_target")} min={70} max={95} step={1} unit="%" decimals={0} info="y_target" />
           </Accordion>
 
           <Accordion title="Economics" icon="◈">
-            <SliderInput label="Sorbent Cost" value={inputs.C_sorbent} onChange={set("C_sorbent")} min={2} max={50} step={1} unit="$/kg" decimals={0} prefix="$" />
+            <SliderInput label="Sorbent Cost" value={inputs.C_sorbent} onChange={set("C_sorbent")} min={2} max={50} step={1} unit="$/kg" decimals={0} prefix="$" info="C_sorbent" />
             <SliderInput label="Electricity Rate" value={inputs.P_elec} onChange={set("P_elec")} min={0.03} max={0.20} step={0.005} unit="$/kWh" decimals={3} prefix="$" />
-            <SliderInput label="Thermal Opp. Cost" value={inputs.R_therm_opp} onChange={set("R_therm_opp")} min={0} max={0.10} step={0.001} unit="$/kWh" decimals={3} prefix="$" />
-            <SliderInput label="Vessel Cost Rate" value={inputs.C_vessel_rate} onChange={set("C_vessel_rate")} min={600} max={2500} step={50} unit="$/m²" decimals={0} prefix="$" />
-            <SliderInput label="Discount Rate" value={inputs.r_disc} onChange={set("r_disc")} min={4} max={20} step={0.5} unit="%" decimals={1} />
+            <SliderInput label="Thermal Opp. Cost" value={inputs.R_therm_opp} onChange={set("R_therm_opp")} min={0} max={0.10} step={0.001} unit="$/kWh" decimals={3} prefix="$" info="R_therm_opp" />
+            <SliderInput label="Vessel Cost Rate" value={inputs.C_vessel_rate} onChange={set("C_vessel_rate")} min={600} max={2500} step={50} unit="$/m²" decimals={0} prefix="$" info="C_vessel_rate" />
+            <SliderInput label="Discount Rate" value={inputs.r_disc} onChange={set("r_disc")} min={4} max={20} step={0.5} unit="%" decimals={1} info="r_disc" />
             <SliderInput label="Project Life" value={inputs.T_project} onChange={set("T_project")} min={5} max={30} step={1} unit="yrs" decimals={0} />
           </Accordion>
         </div>
@@ -626,7 +693,7 @@ export default function TSABedSizingApp() {
 
           <div style={{ background: COLORS.card, borderRadius: 8, border: `1px solid ${COLORS.cardBorder}`, padding: 14, marginBottom: 12 }}>
             <div style={{ fontSize: 11, color: COLORS.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 6 }}>
-              Pareto Explorer — {pareto.pts.length} configurations (geometry × humidity)
+              Pareto Explorer — {pareto.pts.length} configurations (geometry × humidity)<InfoTip id="pareto" />
             </div>
             <ResponsiveContainer width="100%" height={240}>
               <ScatterChart margin={{ left: 10, right: 20, bottom: 10 }}>
