@@ -13,7 +13,7 @@ const COLORS = {
   blue: "#3b82f6",
 };
 
-// ─── Sorbent Database (MCS §4) ───
+// ─── Sorbent Database (MCS §4) — Zeolite 13X only ───
 const SORBENTS = {
   "13X": {
     name: "Zeolite 13X",
@@ -23,20 +23,12 @@ const SORBENTS = {
     cost: 5, life: 7, q_H2O_max: 12,
     hum_table: [[10, 1.0], [20, 0.85], [40, 0.65], [60, 0.40], [80, 0.20]],
   },
-  "CALF-20": {
-    name: "CALF-20 (MOF)",
-    dq_table: [[100, 0.6], [120, 1.1], [140, 1.5], [150, 1.7], [170, 1.85], [200, 1.95]],
-    q_ads: 2.0, Cp_s: 800, rho_p: 900, eps: 0.40, d_p_default: 2.5,
-    T_regen_max: 200, dH_ads: 38000, D_eff: 5e-8,
-    cost: 25, life: 10, q_H2O_max: 2,
-    hum_table: [[10, 1.0], [20, 1.0], [40, 0.95], [60, 0.80], [80, 0.60]],
-  },
 };
 
 const SCENARIOS = {
   conservative: { sorbent: "13X", D_col: 0.80, L_bed: 0.90, N_col: 6, N_ads_target: 3, T_regen: 250, RH_feed: 30, Q_avail: 250, t_regen: 22, t_cool: 14, cool_air: 3.0, P_elec: 0.12 },
   base: { sorbent: "13X", D_col: 0.85, L_bed: 0.90, N_col: 6, N_ads_target: 3, T_regen: 200, RH_feed: 15, Q_avail: 250, t_regen: 18, t_cool: 12, cool_air: 3.0, P_elec: 0.08 },
-  optimistic: { sorbent: "CALF-20", D_col: 0.90, L_bed: 1.00, N_col: 6, N_ads_target: 3, T_regen: 150, RH_feed: 10, Q_avail: 300, t_regen: 15, t_cool: 10, cool_air: 3.5, P_elec: 0.05 },
+  optimistic: { sorbent: "13X", D_col: 0.90, L_bed: 1.00, N_col: 6, N_ads_target: 3, T_regen: 230, RH_feed: 10, Q_avail: 400, t_regen: 22, t_cool: 16, cool_air: 4.0, P_elec: 0.05 },
 };
 
 // ─── Helpers ───
@@ -308,7 +300,7 @@ const INFO = {
   N_ads_target: "How many columns adsorb simultaneously. More adsorbing columns split the feed flow, lowering face velocity. The tool auto-computes adsorption time so exactly this many are always adsorbing (continuous operation).",
   t_regen: "Time spent heating the bed to drive off captured CO₂. Longer regen means lower peak heat demand but a longer overall cycle.",
   t_cool: "Time spent cooling the bed back down before the next adsorption step. Cooling is often the rate-limiting step because the bed holds a lot of heat — watch the 'needs X min' note.",
-  T_regen: "Temperature the bed is heated to during regeneration. Higher temperature releases more CO₂ (higher working capacity and purity) but costs more energy, slows cooling, and stresses the sorbent. 13X tolerates 350°C; CALF-20 only 200°C.",
+  T_regen: "Temperature the bed is heated to during regeneration. Higher temperature releases more CO₂ (higher working capacity and purity) but costs more energy, slows cooling, and stresses the sorbent. Zeolite 13X tolerates up to 350°C; ~200–250°C is the practical sweet spot.",
   // Thermal
   Q_avail: "How much of the BioCHP's 400 kW of heat you allocate to running the TSA regeneration. Every kW used here is a kW you can't sell as thermal energy — so this is a heat-vs-capture economic tradeoff, not a fixed limit.",
   // Closed-loop
@@ -321,7 +313,7 @@ const INFO = {
   f_dP_system: "Multiplier that accounts for pressure losses beyond the packed bed itself — valves, distributors, screens, and manifolds. These typically add 50–100% on top of the bed pressure drop.",
   y_target: "The CO₂ purity you want out of the TSA system. The CRADA needs >99% overall, but that final polish happens downstream — the TSA beds only need to reach ~85%.",
   // Economics
-  C_sorbent: "Cost per kilogram of sorbent. Zeolite 13X is cheap (~$5/kg); CALF-20 is currently $10–25/kg but water-tolerant. Drives both upfront cost and periodic replacement.",
+  C_sorbent: "Cost per kilogram of sorbent. Zeolite 13X is ~$5/kg in bulk. Drives both upfront cost and periodic replacement (7-year life).",
   R_therm_opp: "The value of one kWh of BioCHP heat if sold to the customer instead of used for regeneration. This is the 'opportunity cost' of heat — it makes every kW of regen energy show up as lost revenue.",
   C_vessel_rate: "Fabrication cost per square meter of vessel shell surface. Carbon steel is cheaper; stainless is $1,800–2,500/m².",
   r_disc: "Discount rate used to annualize the upfront capital cost when computing levelized cost. Roughly your cost of capital or hurdle rate.",
@@ -478,7 +470,6 @@ export default function TSABedSizingApp() {
       setInputs(p => ({ ...p, ...s, C_sorbent: SORBENTS[s.sorbent].cost, d_p: SORBENTS[s.sorbent].d_p_default }));
     }
   };
-  const setSorbent = (s) => { setScenario("custom"); setInputs(p => ({ ...p, sorbent: s, C_sorbent: SORBENTS[s].cost, d_p: SORBENTS[s].d_p_default, T_regen: Math.min(p.T_regen, SORBENTS[s].T_regen_max) })); };
 
   // Load a configuration from a clicked Pareto point
   const loadConfig = (d) => {
@@ -593,16 +584,8 @@ export default function TSABedSizingApp() {
       <div style={{ display: "flex", height: "calc(100vh - 56px)" }}>
         {/* LEFT */}
         <div style={{ width: 300, minWidth: 300, overflowY: "auto", borderRight: `1px solid ${COLORS.panelBorder}`, padding: "12px 10px", background: COLORS.panel }}>
-          <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-            {Object.keys(SORBENTS).map(s => (
-              <button key={s} onClick={() => setSorbent(s)}
-                style={{ flex: 1, padding: "8px 4px", borderRadius: 5, cursor: "pointer", fontSize: 11, fontWeight: 700,
-                  border: `1px solid ${inputs.sorbent === s ? COLORS.accent : COLORS.cardBorder}`,
-                  background: inputs.sorbent === s ? "rgba(34,197,94,0.15)" : COLORS.card,
-                  color: inputs.sorbent === s ? COLORS.accent : COLORS.textMuted }}>
-                {SORBENTS[s].name}
-              </button>
-            ))}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginBottom: 10, padding: "8px 4px", borderRadius: 5, border: `1px solid ${COLORS.accent}44`, background: "rgba(34,197,94,0.10)" }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: COLORS.accent }}>SORBENT: ZEOLITE 13X</span>
           </div>
 
           <Accordion title="Feed & Site" icon="◉" defaultOpen>
