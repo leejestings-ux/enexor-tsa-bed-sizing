@@ -62,6 +62,11 @@ const fmt$ = (v) => {
 function runModel(inp) {
   const S = SORBENTS[inp.sorbent];
   const warnings = [];
+  // Guard: adsorbing columns must be strictly less than total (prevents negative cycle time)
+  const N_ads = Math.max(1, Math.min(inp.N_ads_target, inp.N_col - 1));
+  if (inp.N_ads_target >= inp.N_col) {
+    warnings.push({ t: `Columns adsorbing (${inp.N_ads_target}) must be less than total (${inp.N_col}).`, fix: `Auto-clamped to ${N_ads}`, c: "amber" });
+  }
 
   // Step 1: Site correction
   const P_atm = 101325 * Math.pow(1 - 2.25577e-5 * inp.h_alt, 5.25588);
@@ -89,14 +94,14 @@ function runModel(inp) {
   const m_sorbent_total = m_sorbent_col * inp.N_col;
 
   // Steps 5-7: Enforced schedule, capacity vs feed limit, recovery
-  const t_ads = (inp.t_regen + inp.t_cool) * inp.N_ads_target / (inp.N_col - inp.N_ads_target);
+  const t_ads = (inp.t_regen + inp.t_cool) * N_ads / (inp.N_col - N_ads);
   const t_cycle = t_ads + inp.t_regen + inp.t_cool;
 
   const CO2_cap = m_sorbent_col * dq * 0.044;
   const MW_mix = (inp.y_CO2 / 100) * 44 + (1 - inp.y_CO2 / 100) * 28.8;
   const w_CO2 = (inp.y_CO2 / 100) * 44 / MW_mix;
   const mdot_CO2 = inp.m_feed * w_CO2;
-  const CO2_feed_cycle = (mdot_CO2 / inp.N_ads_target) * t_ads * 60;
+  const CO2_feed_cycle = (mdot_CO2 / N_ads) * t_ads * 60;
   const CO2_per_cycle = Math.min(CO2_cap, CO2_feed_cycle * 0.95);
   const recovery = CO2_feed_cycle > 0 ? CO2_per_cycle / CO2_feed_cycle * 100 : 0;
   const feed_limited = CO2_cap > CO2_feed_cycle * 0.95;
@@ -108,7 +113,7 @@ function runModel(inp) {
   const CO2_tpy = CO2_tpd * 365 * inp.f_avail;
 
   // Step 9: Velocity
-  const v_sup = (inp.m_feed / inp.N_ads_target) / (rho_air * A_col);
+  const v_sup = (inp.m_feed / N_ads) / (rho_air * A_col);
   if (v_sup > 1.0) warnings.push({ t: `Face velocity ${v_sup.toFixed(2)} m/s — fluidization risk.`, fix: `Increase D_col to ≥ ${(inp.D_col * Math.sqrt(v_sup / 0.6)).toFixed(2)} m`, c: "red" });
   else if (v_sup > 0.65) warnings.push({ t: `Face velocity ${v_sup.toFixed(2)} m/s is elevated.`, fix: "Consider larger D_col", c: "amber" });
 
@@ -159,9 +164,11 @@ function runModel(inp) {
   if (t_cool_req > inp.t_cool * 1.5) warnings.push({ t: `Severe cooling bottleneck: needs ${t_cool_req.toFixed(1)} min vs ${inp.t_cool} allocated.`, fix: `Raise cooling air flow or shorten/shrink beds`, c: "red" });
   else if (t_cool_req > inp.t_cool) warnings.push({ t: `Cooling needs ${t_cool_req.toFixed(1)} min but ${inp.t_cool} min allocated.`, fix: `Raise t_cool to ${Math.ceil(t_cool_req)} min or increase cooling air`, c: "amber" });
 
-  // Step 15: Specific energy
-  const W_total = W_blower + W_loop + 5;
-  const E_elec = CO2_tpy > 0 ? W_total * 8760 * inp.f_avail / CO2_tpy : 0;
+  // Step 15: Specific energy (uses AVERAGE loop power for consistency with OPEX)
+  const W_loop_avg = inp.W_loop_blower * inp.N_col * inp.t_regen / t_cycle;
+  const W_total_avg = W_blower + W_loop_avg + 5;
+  const W_total_peak = W_blower + W_loop + 5;
+  const E_elec = CO2_tpy > 0 ? W_total_avg * 8760 * inp.f_avail / CO2_tpy : 0;
   const E_therm = CO2_tpy > 0 ? Q_regen_total * 8760 * inp.f_avail / CO2_tpy : 0;
 
   // Step 16: Container
@@ -192,10 +199,9 @@ function runModel(inp) {
   const C_equip = Object.values(cx).reduce((s, v) => s + v, 0);
   const CAPEX_total = C_equip * 1.35;
 
-  // Step 18: OPEX
-  const W_loop_avg = inp.W_loop_blower * inp.N_col * inp.t_regen / t_cycle;
+  // Step 18: OPEX (W_loop_avg / W_total_avg from Step 15)
   const ox = {
-    electricity: (W_blower + W_loop_avg + 5) * 8760 * inp.f_avail * inp.P_elec,
+    electricity: W_total_avg * 8760 * inp.f_avail * inp.P_elec,
     "thermal opp cost": Q_regen_total * 8760 * inp.f_avail * inp.R_therm_opp,
     sorbent: m_sorbent_total * inp.C_sorbent / S.life,
     valves: 1500 * inp.N_col,
@@ -214,7 +220,7 @@ function runModel(inp) {
     P_atm, rho_air, P_CO2, f_P, dq_dry, f_hum, dq, T_dp,
     A_col, m_sorbent_col, m_sorbent_total, t_ads, t_cycle,
     CO2_cap, CO2_feed_cycle, CO2_per_cycle, recovery, feed_limited,
-    CO2_tpd, CO2_tpy, v_sup, f_MTZ, L_MTZ, dP_bed, dP_sys, W_blower, W_loop, W_total,
+    CO2_tpd, CO2_tpy, v_sup, f_MTZ, L_MTZ, dP_bed, dP_sys, W_blower, W_loop, W_total_avg, W_total_peak,
     Q_sens, Q_des, Q_ves, Q_loss, Q_regen_rate, N_regen, Q_regen_total,
     rev_therm_forgone, purity, m_inert, m_H2O, t_cool_req, E_elec, E_therm, fits,
     cx, C_equip, CAPEX_total, ox, OPEX_total, LCCC, warnings,
@@ -474,6 +480,13 @@ export default function TSABedSizingApp() {
   };
   const setSorbent = (s) => { setScenario("custom"); setInputs(p => ({ ...p, sorbent: s, C_sorbent: SORBENTS[s].cost, d_p: SORBENTS[s].d_p_default, T_regen: Math.min(p.T_regen, SORBENTS[s].T_regen_max) })); };
 
+  // Load a configuration from a clicked Pareto point
+  const loadConfig = (d) => {
+    if (!d || d.D == null) return;
+    setScenario("custom");
+    setInputs(p => ({ ...p, D_col: d.D, L_bed: d.L, N_col: d.N, RH_feed: d.RH, N_ads_target: Math.min(p.N_ads_target, d.N - 1) }));
+  };
+
   const res = useMemo(() => runModel(inputs), [inputs]);
 
   useEffect(() => {
@@ -504,7 +517,7 @@ export default function TSABedSizingApp() {
     const infeasible = pts.filter(p => !p.feasible);
     const frontier = clean.filter(p => !clean.some(q => q.tpd >= p.tpd && q.lccc <= p.lccc && (q.tpd > p.tpd || q.lccc < p.lccc))).sort((a, b) => a.tpd - b.tpd);
     return { pts, clean, warn, infeasible, frontier };
-  }, [inputs.sorbent, inputs.T_regen, inputs.t_regen, inputs.t_cool, inputs.N_ads_target, inputs.Q_avail, inputs.h_alt, inputs.T_feed, inputs.y_CO2, inputs.P_elec, inputs.R_therm_opp, inputs.C_sorbent, inputs.r_disc, inputs.T_project, inputs.y_target, inputs.cool_air]);
+  }, [inputs.sorbent, inputs.T_regen, inputs.t_regen, inputs.t_cool, inputs.N_ads_target, inputs.Q_avail, inputs.h_alt, inputs.T_feed, inputs.y_CO2, inputs.P_elec, inputs.R_therm_opp, inputs.C_sorbent, inputs.r_disc, inputs.T_project, inputs.y_target, inputs.cool_air, inputs.d_p, inputs.f_avail, inputs.eta_blower, inputs.f_dP_system, inputs.f_cool_corr, inputs.eta_HX_loop, inputs.W_loop_blower, inputs.f_H2O_carry, inputs.C_vessel_rate, inputs.C_valve_col]);
 
   const sensitivity = useMemo(() => {
     const params = [
@@ -603,12 +616,12 @@ export default function TSABedSizingApp() {
           <Accordion title="Bed Geometry" icon="▭" defaultOpen>
             <SliderInput label="Column Diameter" value={inputs.D_col} onChange={set("D_col")} min={0.30} max={1.20} step={0.05} unit="m" decimals={2} info="D_col" />
             <SliderInput label="Bed Length" value={inputs.L_bed} onChange={set("L_bed")} min={0.50} max={3.00} step={0.10} unit="m" decimals={2} redAbove={1.89} note="red = exceeds container" info="L_bed" />
-            <SliderInput label="Number of Columns" value={inputs.N_col} onChange={v => set("N_col")(Math.round(v))} min={2} max={6} step={1} unit="" decimals={0} info="N_col" />
+            <SliderInput label="Number of Columns" value={inputs.N_col} onChange={v => { const n = Math.round(v); setScenario("custom"); setInputs(p => ({ ...p, N_col: n, N_ads_target: Math.min(p.N_ads_target, n - 1) })); }} min={2} max={6} step={1} unit="" decimals={0} info="N_col" />
             <SliderInput label="Pellet Diameter" value={inputs.d_p} onChange={set("d_p")} min={1.0} max={4.0} step={0.25} unit="mm" decimals={2} info="d_p" />
           </Accordion>
 
           <Accordion title="Cycle Schedule" icon="⟳">
-            <SliderInput label="Columns Adsorbing" value={inputs.N_ads_target} onChange={v => set("N_ads_target")(Math.max(1, Math.min(Math.round(v), inputs.N_col - 1)))} min={1} max={5} step={1} unit="" decimals={0} note={`t_ads auto: ${res.t_ads.toFixed(0)} min`} info="N_ads_target" />
+            <SliderInput label="Columns Adsorbing" value={inputs.N_ads_target} onChange={v => set("N_ads_target")(Math.max(1, Math.min(Math.round(v), inputs.N_col - 1)))} min={1} max={inputs.N_col - 1} step={1} unit="" decimals={0} note={`t_ads auto: ${res.t_ads.toFixed(0)} min`} info="N_ads_target" />
             <SliderInput label="Regen Time" value={inputs.t_regen} onChange={set("t_regen")} min={10} max={45} step={1} unit="min" decimals={0} info="t_regen" />
             <SliderInput label="Cooling Time" value={inputs.t_cool} onChange={set("t_cool")} min={5} max={20} step={1} unit="min" decimals={0} note={`needs ${res.t_cool_req.toFixed(1)} min`} info="t_cool" />
             <SliderInput label="Regen Temperature" value={inputs.T_regen} onChange={set("T_regen")} min={100} max={300} step={5} unit="°C" decimals={0} redAbove={S.T_regen_max < 300 ? S.T_regen_max : undefined} info="T_regen" />
@@ -652,7 +665,7 @@ export default function TSABedSizingApp() {
             <MetricCard label="Recovery" value={res.recovery} unit="%" decimals={0} status={res.recovery >= 90 ? "ok" : res.recovery >= 75 ? "warn" : "error"} tip="CO₂ captured ÷ CO₂ fed — CRADA target >90%" />
             <MetricCard label="LCCC" value={res.LCCC} unit="$/t" decimals={0} status={res.LCCC < 80 ? "ok" : res.LCCC < 120 ? "warn" : "error"} tip="Levelized cost of capture vs $85 45Q + offtake" />
             <MetricCard label="Purity (est.)" value={res.purity} unit="%" decimals={0} status={res.purity >= inputs.y_target ? "ok" : res.purity >= 75 ? "warn" : "error"} tip="Mass-balance estimate — bench validation required" />
-            <MetricCard label="Power" value={res.W_total} unit="kW" decimals={1} status={res.W_total < 25 ? "ok" : res.W_total < 40 ? "warn" : "error"} tip="Feed blower + loop blowers + aux" />
+            <MetricCard label="Power (avg)" value={res.W_total_avg} unit="kW" decimals={1} status={res.W_total_avg < 25 ? "ok" : res.W_total_avg < 40 ? "warn" : "error"} sub={`peak ${res.W_total_peak.toFixed(0)} kW`} tip="Feed blower + loop blowers (avg over cycle) + aux. OPEX and specific energy use this average." />
             <MetricCard label="Regen Heat" value={res.Q_regen_total} unit="kW" decimals={0} status={res.Q_regen_total < inputs.Q_avail * 0.75 ? "ok" : res.Q_regen_total <= inputs.Q_avail ? "warn" : "error"} tip="Thermal demand for regeneration" />
             <MetricCard label="Heat Sellable" value={400 - Math.min(400, res.Q_regen_total)} unit="kW" decimals={0} status={(400 - res.Q_regen_total) > 200 ? "ok" : "warn"} sub={`${fmt$((400 - Math.min(400, res.Q_regen_total)) * 8760 * inputs.f_avail * inputs.R_therm_opp)}/yr`} tip="BioCHP thermal remaining for customer sales" />
             <MetricCard label="Container" value={res.fits ? "FITS" : "NO FIT"} unit="" status={res.fits ? "ok" : "error"} tip="40ft ISO: 12.03 × 2.35 × 2.39 m" />
@@ -712,8 +725,8 @@ export default function TSABedSizingApp() {
                   </div>;
                 }} />
                 <Scatter name="Infeasible" data={pareto.infeasible} fill={COLORS.red} fillOpacity={0.18} isAnimationActive={false} />
-                <Scatter name="Warnings" data={pareto.warn} fill={COLORS.amber} fillOpacity={0.45} isAnimationActive={false} />
-                <Scatter name="Feasible" data={pareto.clean} fill={COLORS.accent} fillOpacity={0.75} isAnimationActive={false} />
+                <Scatter name="Warnings" data={pareto.warn} fill={COLORS.amber} fillOpacity={0.45} isAnimationActive={false} onClick={(d) => d && loadConfig(d)} style={{ cursor: "pointer" }} />
+                <Scatter name="Feasible" data={pareto.clean} fill={COLORS.accent} fillOpacity={0.75} isAnimationActive={false} onClick={(d) => d && loadConfig(d)} style={{ cursor: "pointer" }} />
                 {pareto.frontier.length > 1 && <Scatter name="Frontier" data={pareto.frontier} fill={COLORS.blue} line={{ stroke: COLORS.blue, strokeWidth: 2 }} isAnimationActive={false} />}
                 <Scatter name="Current" data={[{ tpd: Math.min(res.CO2_tpd, 6), lccc: Math.min(isFinite(res.LCCC) ? res.LCCC : 250, 250) }]} fill="#ffffff" shape="diamond" isAnimationActive={false} />
               </ScatterChart>
@@ -724,6 +737,7 @@ export default function TSABedSizingApp() {
               <span><span style={{ color: COLORS.red }}>●</span> Infeasible</span>
               <span><span style={{ color: COLORS.blue }}>—</span> Pareto frontier</span>
               <span style={{ color: "#fff" }}>◆ Current</span>
+              <span style={{ color: COLORS.cyan, marginLeft: "auto" }}>click any point to load it →</span>
             </div>
           </div>
 
